@@ -1,7 +1,7 @@
-from scripts.run_method import run
+from scripts.run_cmd_method import run
 from datetime import datetime
 
-run('git', 'add', '.')
+import scripts.git_add
 import scripts.git_status
 
 msg = input('Commit: ')
