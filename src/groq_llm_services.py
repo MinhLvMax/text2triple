@@ -1,12 +1,5 @@
 from groq import Groq
-from pydantic import BaseModel, ValidationError
-
-from src.chatbot.models.history import History
-from src.chatbot.services.prompt_service import PromptService
-from src.config import GROQ_API_KEY
-from src.loggers import main_logger
-from src.chatbot.models.llm_response_model import LLMResponseModel
-
+from src import config
 
 class GroqModelName:
     COMPOUND = "groq/compound"
@@ -36,98 +29,41 @@ class GroqServices:
     def __init__(
             self,
             api_key: str = '',
-            prompt_services=None,
     ):
-        self.api_key = api_key or GROQ_API_KEY
-        self.client = Groq(api_key=self.api_key)
-        self.prompt_service = prompt_services or PromptService()
+        api_key = api_key or config.GROQ_API_KEY
+        self.client = Groq(api_key=api_key)
+        self.DEFAUL_MODEL = GroqModelName.LLAMA_3_1_8B_INSTANT
 
-    def chat(
-            self,
-            text: str,
-            model_name: str = GroqModelName.LLAMA_3_1_8B_INSTANT,
-            system_prompt: str | None = None, response_format: dict | None = None,
-    ) -> str:
-        messages = []
+    def hischat(self, messages: list[dict], model_name: str | None = None, json_mode: bool = False):
+        kwargs = {
+            'messages': messages,
+            'model': model_name if model_name else self.DEFAUL_MODEL,
+        }
+        if json_mode:
+            kwargs['response_format'] = {
+                'type': 'json_object',
+            }
+        response = self.client.chat.completions.create(**kwargs)
+        return response.choices[0].message
 
-        if system_prompt:
-            messages.append({
-                "role": "system",
-                "content": system_prompt
-            })
-
-        messages.append({
-            "role": "user",
-            "content": text
-        })
-
-        kwargs = {}
-
-        if response_format is not None:
-            kwargs["response_format"] = response_format
-
-        response = self.client.chat.completions.create(
-            model=model_name,
-            messages=messages,
-            **kwargs
-        )
-
-        return response.choices[0].message.content
-
-    def chat_json(
-            self,
-            messages: list[dict],
-            response_model: type[LLMResponseModel],
-            model_name: str = GroqModelName.LLAMA_3_1_8B_INSTANT,
-            system_prompt: str | None = None
-    ) -> BaseModel:
-
-        # lấy mô tả schema
-        schema = response_model.llm_schema()
-
-        # format prompt trả về json, truyển mô tả schema vào
-        prompt = self.prompt_service.render(
-            "json_output",
-            schema=schema
-        )
-
-        # Nếu không có system prompt
-        system_content = prompt
-
-        # nếu có system prompt
-        if system_prompt:
-            system_content = f"{system_prompt}\n\n{prompt}"
-
+    def chat(self, message: str, model_name: str | None = None, json_mode: bool = False):
         messages = [
             {
-                "role": "system",
-                "content": system_content
-            },
-            *messages
+                'role': 'user',
+                'content': message,
+            }
         ]
+        return self.hischat(messages, model_name, json_mode)
 
-        response = self.client.chat.completions.create(
-            model=model_name,
-            messages=messages,
-            response_format={"type": "json_object"}
-        )
 
-        try:
-            return response_model.model_validate_json(
-                response.choices[0].message.content
-            )
-        except ValidationError as e:
-            main_logger.exception(e)
-            raise
+if __name__ == '__main__':
+    messages = [
+        {
+            'role': 'user',
+            'content': 'Xin chào'
+        }
+    ]
 
-    def chat_history(
-            self,
-            messages: list[dict[str, str]],
-            model_name: str = GroqModelName.LLAMA_3_1_8B_INSTANT,
-    ) -> str:
-        response = self.client.chat.completions.create(
-            model=model_name,
-            messages=messages
-        )
-
-        return response.choices[0].message.content
+    gs = GroqServices()
+    msg = gs.hischat(messages)
+    print(f'-{msg.role}:\n{msg.content}')
