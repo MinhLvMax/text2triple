@@ -1,6 +1,6 @@
 import pymupdf
 from src.config import Config
-from src.file_helper import FileHelper
+from src.helper_file import FileHelper
 
 # Hằng số đầu vào
 input_json = Config.PROJECT_DIR / 'input.json'
