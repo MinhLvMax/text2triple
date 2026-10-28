@@ -3,8 +3,8 @@ import json
 import os
 import tempfile
 from pathlib import Path
-from underthesea import word_tokenize, ner, sent_tokenize
-from src.config import Config
+from underthesea import ner, sent_tokenize
+from src.old_code.config import Config
 import pandas as pd
 import numpy as np
 

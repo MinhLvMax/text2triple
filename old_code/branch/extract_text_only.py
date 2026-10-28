@@ -1,5 +1,5 @@
-from src.helper_file import FileHelper
-from src.config import Config
+from src.old_code.helper_file import FileHelper
+from src.old_code.config import Config
 
 history_text_folder = Config.DATA_DIR / 'history_text'
 history_text_folder.mkdir(exist_ok=True, parents=True)

@@ -1,11 +1,9 @@
 import sqlite3
-from pprint import pprint
 from typing import TypedDict, NotRequired
 
 import requests
-from src.helper_file import read_csv_to_df, read_csv_to_list_dict
-from src.helper_db import create_conn, create_or_insert, read_table_to_list_dict, create_new_uuid
-from src.repositories.entities_repository import EntitiesRepository
+from src.old_code.helper_db import create_conn, create_or_insert, create_new_uuid
+from src.old_code.repositories.entities_repository import EntitiesRepository
 
 
 class Entity(TypedDict):
@@ -186,20 +184,60 @@ def marked_as_searched(ent_rep, entity):
     )
 
 
+def get_fail_and_pending_entities(conn: sqlite3.Connection):
+    cursor = conn.execute(
+        '''
+SELECT * 
+FROM entities
+WHERE lookup_status != 'success'            
+        '''
+    )
+
+    columns = [
+        description[0]
+        for description in cursor.description
+    ]
+
+    # print(cursor.fetchall()) # có ra dữ liệu list tup
+
+    # print(
+    #     [
+    #         dict(zip(columns, row))
+    #         for row in cursor.fetchall()
+    #     ]
+    # )
+
+    return [
+        dict(zip(columns, row))
+        for row in cursor.fetchall()
+    ]
+
+
+def test_get_fail_and_pending_entities():
+    from src.old_code.config import Config
+
+    db_path = Config.DATA_DIR / 'data.db'  # Đường dẫn db
+
+    conn = create_conn(  # Khai báo connection db
+        db_path=db_path
+    )
+    get_fail_and_pending_entities(conn)
+
+
 def run_pipline():
-    from src.config import Config
+    print(run_pipline.__name__)
+    from src.old_code.config import Config
 
-    db_path = Config.DATA_DIR / 'data.db'
-
-    conn = create_conn(
+    db_path = Config.DATA_DIR / 'data.db'  # Đường dẫn db
+    conn = create_conn(  # Khai báo connection db
         db_path=db_path
     )
 
-    ent_rep = EntitiesRepository(conn)
-    entities = ent_rep.get_all()
-
+    ent_rep = EntitiesRepository(conn)  # Khai báo repo
+    entities = get_fail_and_pending_entities(conn)  # Lấy danh sách tất cả thực thể chưa được cào dữ liệu thành công
     process_len = len(entities)
     for i, row in enumerate(entities):
+
         print(f'{i} / {process_len}')
         entity: Entity = {
             'uuid': row['uuid'],
@@ -231,3 +269,6 @@ def run_pipline():
 
 if __name__ == '__main__':
     run_pipline()
+
+    # test_get_fail_and_pending_entities()
+    ...

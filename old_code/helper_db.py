@@ -465,9 +465,11 @@ def build_repositories(
     finally:
         conn.close()  # Đảm bảo connection luôn được đóng
 
+
 if __name__ == '__main__':
-    from src.config import Config
-    build_repositories(
-        db_path=r'D:\projects\text2triple\data\data.db',
-        output_folder=Config.PROJECT_DIR / 'src' / 'repositories'
-    )
+    pass
+    # build_repositories(
+    #     db_path=r'D:\projects\text2triple\data\data.db',
+    #     output_folder=Config.PROJECT_DIR / 'src' / 'repositories'
+    # )
+

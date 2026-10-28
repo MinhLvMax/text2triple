@@ -1,7 +1,7 @@
 import requests
 import asyncio
 from typing import Literal, TypedDict
-from src.config import Config
+from src.old_code.config import Config
 
 Role = Literal["system", "user", "assistant"]
 

@@ -1,12 +1,11 @@
 import requests
 from pprint import pprint
 import uuid
-from typing import TypedDict
 
 import pandas as pd
 
-from src.helper_file import read_csv_to_df, write_dicts_to_csv
-from src.config import Config
+from src.old_code.helper_file import read_csv_to_df, write_dicts_to_csv
+from src.old_code.config import Config
 
 
 GRAPH_FODLER = Config.DATA_DIR / 'graphs'

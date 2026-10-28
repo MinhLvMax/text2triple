@@ -1,6 +1,6 @@
 import pandas as pd
-from src.helper_file import FileHelper
-from src.config import Config
+from src.old_code.helper_file import FileHelper
+from src.old_code.config import Config
 
 WORDS_PATH = Config.DATA_DIR / 'words.csv'
 ENTITIES_PATH = Config.DATA_DIR / 'entities.csv'
