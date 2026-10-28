@@ -1,21 +1,20 @@
+"""Tầng trình diễn (Presentation Layer) - Giao diện dòng lệnh tương tác (Interactive CLI)."""
 import sys
 from typing import Optional
 
-# CHỈ import từ Application/Domain, TUYỆT ĐỐI KHÔNG import Bootstrap hay Infrastructure
+# Tầng Presentation chỉ phụ thuộc vào Tầng Application / Domain
 from src.application.usecases.extract import InformationExtractionUseCase
 
 
 class CLIApp:
-    """
-    Giao diện dòng lệnh (Command Line Interface).
-    Nhận Use Case từ bên ngoài thông qua Constructor Injection.
-    """
+    """Giao diện dòng lệnh hỗ trợ người dùng nhập liệu trực tiếp và quan sát kết quả trích xuất."""
 
     def __init__(self, extraction_usecase: InformationExtractionUseCase):
+        """Khởi tạo CLIApp thông qua Constructor Injection."""
         self._usecase = extraction_usecase
 
     def run(self) -> None:
-        """Vòng lặp tương tác chính với người dùng"""
+        """Vòng lặp tương tác chính của ứng dụng dòng lệnh."""
         print("=" * 60)
         print(" CHƯƠNG TRÌNH TRÍCH XUẤT ĐỒ THỊ TRI THỨC LỊCH SỬ (CLI)")
         print("=" * 60)
@@ -46,7 +45,7 @@ class CLIApp:
                     line = input()
                     if line.strip() == "END":
                         break
-                    if not line and lines and not lines[-1]:  # Nhấn Enter 2 lần liên tiếp
+                    if not line and lines and not lines[-1]:  # Nhấn Enter 2 lần liên tiếp để kết thúc
                         lines.pop()
                         break
                     lines.append(line)
@@ -56,7 +55,7 @@ class CLIApp:
                     print("[!] Lỗi: Nội dung văn bản không được để trống. Vui lòng nhập lại.")
                     continue
 
-                # Thực thi Use Case và truyền model người dùng chọn từ CLI
+                # Thực thi Use Case trích xuất và nạp vào Neo4j
                 print(f"\n[*] Đang gửi văn bản tới LLM ({selected_model}) và nạp vào Neo4j...")
                 result = self._usecase.execute(
                     text=text,
@@ -64,7 +63,7 @@ class CLIApp:
                     model_name=selected_model
                 )
 
-                # Hiển thị kết quả trích xuất
+                # Hiển thị cấu trúc kết quả trích xuất
                 self._display_result(result)
 
             except KeyboardInterrupt:
@@ -74,6 +73,7 @@ class CLIApp:
                 print(f"\n[X] Đã xảy ra lỗi: {e}")
 
     def _resolve_model(self, choice: str) -> str:
+        """Phân giải tên mô hình dựa trên lựa chọn số của người dùng."""
         if choice == "1":
             return "gpt-4o-mini"
         elif choice == "2":
@@ -84,6 +84,7 @@ class CLIApp:
         return "gpt-4o-mini"
 
     def _display_result(self, result) -> None:
+        """Định dạng và in kết quả trích xuất các thực thể và quan hệ ra màn hình."""
         print("\n" + "-" * 50)
         print(f"KẾT QUẢ TRÍCH XUẤT CHO CHUNK: {result.chunk_id}")
         print("-" * 50)

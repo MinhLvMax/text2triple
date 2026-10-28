@@ -1,16 +1,12 @@
 """Pipeline trích xuất động theo cơ chế Claim-and-Process (Task Leasing) đa nền tảng.
 
 Mỗi worker sẽ:
-1. Lấy đúng 1 chunk đang ở trạng thái PENDING và lập tức chuyển thành PROCESSING.
-2. Gọi UseCase trích xuất quan hệ và nạp vào Neo4j.
-3. Cập nhật provider, model và đánh dấu COMPLETED (hoặc FAILED / quay lại PENDING nếu lỗi).
-4. Nghỉ sleep_time theo giới hạn rate limit riêng của từng model/nhà cung cấp.
+1. Nhận quyền nguyên tử (Atomic Claim) đúng 1 chunk đang ở trạng thái PENDING và chuyển sang PROCESSING.
+2. Điều phối Use Case trích xuất quan hệ và nạp vào cơ sở dữ liệu đồ thị Neo4j.
+3. Cập nhật thông tin provider, model và đánh dấu COMPLETED (hoặc FAILED nếu vượt ngưỡng thử lại).
+4. Nghỉ một khoảng thời gian (sleep_time) phù hợp với Rate Limit của từng nhà cung cấp.
 
-Hàm `main()` bên dưới khởi chạy song song 2 worker trên 2 nền tảng khác nhau cùng lúc
-(ví dụ: Google AI Studio và Groq), cùng nhau rút cạn hàng đợi SQLite staging_chunks.db
-mà không lo bị trùng lặp chunk hay nghẽn rate limit.
-
-Chạy trực tiếp:
+Lệnh thực thi trực tiếp:
     python -m src.entrypoints.run_worker_pipeline
 """
 from collections.abc import Sequence
@@ -21,7 +17,7 @@ import threading
 import time
 from typing import Optional, Dict, Any
 
-# Đảm bảo in tiếng Việt chuẩn trên Windows terminal (tránh lỗi CP1252)
+# Thiết lập bảng mã UTF-8 cho luồng xuất tiêu chuẩn trên Windows terminal
 if hasattr(sys.stdout, "reconfigure"):
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -47,33 +43,33 @@ logger = logging.getLogger("worker_pipeline")
 
 
 def run_pipeline(
-        provider: str = "google",
-        model: Optional[str] = None,
-        limit: Optional[int] = None,
-        max_workers: int = 1,
-        max_retries: int = 3,
-        sleep_time: float = 0.0,
-        reset_stale: bool = False,
-        worker_name: Optional[str] = None,
-        relation_classes: Optional[Sequence[type[BaseRelation]]] = None,
-        repo: Optional[Any] = None,
+    provider: str = "google",
+    model: Optional[str] = None,
+    limit: Optional[int] = None,
+    max_workers: int = 1,
+    max_retries: int = 3,
+    sleep_time: float = 0.0,
+    reset_stale: bool = False,
+    worker_name: Optional[str] = None,
+    relation_classes: Optional[Sequence[type[BaseRelation]]] = None,
+    repo: Optional[Any] = None,
 ) -> Dict[str, int]:
-    """Hàm chạy pipeline trích xuất tri thức với cơ chế Claim-and-Process.
+    """Hàm điều phối luồng thực thi pipeline trích xuất với cơ chế Claim-and-Process.
 
     Args:
-        provider: "google" | "groq" | "ollama" | "openai"
-        model: Tên model cụ thể (None để dùng model mặc định của provider)
-        limit: Giới hạn tổng số chunk mà worker này sẽ xử lý (None = chạy đến khi hết chunk PENDING)
-        max_workers: Số luồng worker song song cho riêng cấu hình này
-        max_retries: Số lần thử lại tối đa trước khi đánh dấu chunk là FAILED
-        sleep_time: Thời gian nghỉ (giây) giữa 2 lần xử lý của mỗi worker (kiểm soát Rate Limit)
-        reset_stale: Nếu True, sẽ khôi phục tất cả các chunk đang kẹt ở PROCESSING về PENDING trước khi chạy
-        worker_name: Tên định danh hiển thị trên console (mặc định lấy theo provider:model)
-        relation_classes: Danh sách các lớp quan hệ cần trích xuất (mặc định lấy DEFAULT_RELATION_CLASSES)
-        repo: ChunkRepository dùng chung (nếu None sẽ tự khởi tạo)
+        provider: Tên nhà cung cấp ('google', 'groq', 'ollama', 'openai').
+        model: Tên mô hình cụ thể (None để dùng mô hình mặc định của provider).
+        limit: Giới hạn tổng số chunk mà worker này sẽ xử lý (None = chạy đến khi hết chunk PENDING).
+        max_workers: Số luồng worker song song cho riêng cấu hình này.
+        max_retries: Số lần thử lại tối đa trước khi đánh dấu chunk là FAILED.
+        sleep_time: Thời gian nghỉ (giây) giữa các lần xử lý nhằm bảo vệ Rate Limit.
+        reset_stale: Nếu True, khôi phục tất cả các chunk đang kẹt ở PROCESSING về PENDING trước khi chạy.
+        worker_name: Tên định danh hiển thị trên console (mặc định lấy theo provider:model).
+        relation_classes: Danh sách các lớp quan hệ cần trích xuất (mặc định lấy DEFAULT_RELATION_CLASSES).
+        repo: Thể hiện ChunkRepository dùng chung (nếu None sẽ tự khởi tạo).
 
     Returns:
-        dict: Thống kê số lượng {"completed": ok_count, "failed": fail_count, "processed": total}
+        dict: Thống kê số lượng hoàn thành: {"completed": ok_count, "failed": fail_count, "processed": total}.
     """
     if relation_classes is None:
         relation_classes = DEFAULT_RELATION_CLASSES
@@ -81,7 +77,7 @@ def run_pipeline(
     if repo is None:
         repo = build_chunk_repository()
 
-    # Khôi phục các chunk bị kẹt từ phiên chạy trước nếu yêu cầu
+    # Khôi phục các chunk bị kẹt từ phiên chạy trước nếu có yêu cầu
     if reset_stale:
         stale_count = repo.reset_processing_to_pending()
         if stale_count > 0:
@@ -107,15 +103,15 @@ def run_pipeline(
         worker_label = f"{tag}#{sub_id}" if max_workers > 1 else tag
 
         while not stop_signal.is_set():
-            # Kiểm tra xem đã đạt giới hạn limit chưa
+            # Kiểm tra ngưỡng giới hạn số lượng xử lý
             with counter_lock:
                 if limit is not None and processed_counter >= limit:
                     break
 
-            # 1. Bốc đúng 1 chunk PENDING và chuyển ngay sang PROCESSING (Atomic)
+            # 1. Nhận quyền nguyên tử 1 chunk PENDING và chuyển sang PROCESSING
             claimed = repo.claim_next_pending()
             if not claimed:
-                # Không còn chunk nào PENDING trong CSDL
+                # Không còn chunk nào PENDING trong cơ sở dữ liệu
                 break
 
             chunk_id, text = claimed
@@ -126,10 +122,10 @@ def run_pipeline(
 
             print(f"[{worker_label}][#{curr_idx}] Nhận {chunk_id} -> Đang xử lý (PROCESSING)...")
 
-            # 2. Thực hiện trích xuất qua UseCase
+            # 2. Thực hiện trích xuất và nạp vào cơ sở dữ liệu đồ thị
             try:
                 result = usecase.execute(text, relation_classes, chunk_id=chunk_id)
-                # 3. Thành công: Cập nhật thông tin và đổi trạng thái COMPLETED
+                # 3. Thành công: Cập nhật thông tin và chuyển trạng thái COMPLETED
                 repo.update_provider(chunk_id, provider)
                 repo.update_model(chunk_id, actual_model)
                 repo.mark_completed(chunk_id, result.model_dump(mode="json"))
@@ -138,7 +134,7 @@ def run_pipeline(
                     ok_count += 1
                 print(f"[{worker_label}][#{curr_idx}] OK {chunk_id}: {len(result.relations)} quan hệ -> COMPLETED")
             except Exception as e:
-                # 4. Thất bại: Cập nhật thông tin và tăng retry_count (PENDING hoặc FAILED)
+                # 4. Thất bại: Ghi nhận lỗi và tăng retry_count (PENDING hoặc FAILED)
                 repo.update_provider(chunk_id, provider)
                 repo.update_model(chunk_id, actual_model)
                 status = repo.mark_failed(chunk_id, max_retries)
@@ -147,7 +143,7 @@ def run_pipeline(
                     fail_count += 1
                 print(f"[{worker_label}][#{curr_idx}] LỖI {chunk_id} -> {status}: {e}")
 
-            # 5. Nghỉ theo rate limit
+            # 5. Nghỉ giãn cách theo Rate Limit của nhà cung cấp
             if sleep_time > 0 and not stop_signal.is_set():
                 time.sleep(sleep_time)
 
@@ -172,15 +168,15 @@ def run_pipeline(
 
 
 def main() -> None:
-    """Khởi chạy đồng thời khoảng 2 worker trên 2 nền tảng khác nhau."""
+    """Khởi chạy đồng thời các Worker trên nhiều mô hình/nền tảng khác nhau."""
     repo = build_chunk_repository()
 
-    # 1. Tự động khôi phục các chunk bị kẹt ở PROCESSING từ lần chạy trước về PENDING
+    # 1. Tự động khôi phục các chunk bị kẹt ở trạng thái PROCESSING về PENDING
     stale_count = repo.reset_processing_to_pending()
     if stale_count > 0:
         print(f"[*] Đã khôi phục {stale_count} chunk bị kẹt 'PROCESSING' về 'PENDING'.")
 
-    # 2. Định nghĩa cấu hình 2 Worker chạy song song với model và nền tảng khác nhau:
+    # 2. Cấu hình danh sách các Worker chạy song song đa nền tảng
     worker_configs = [
         # {
         #     "worker_name": "Worker-Google",

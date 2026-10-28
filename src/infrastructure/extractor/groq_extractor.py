@@ -1,6 +1,6 @@
+"""Adapter trích xuất tri thức sử dụng nền tảng tăng tốc phần cứng Groq Cloud."""
 import json
-from typing import List, Type
-
+from typing import List, Type, Optional
 from groq import Groq
 
 from src.application.port.base_extractor import BaseExtractor
@@ -12,7 +12,9 @@ DEFAULT_MODEL = "openai/gpt-oss-120b"
 
 
 class GroqExtractor(BaseExtractor):
-    def __init__(self, api_key: str, model: str | None = None):
+    """Triển khai trích xuất dữ liệu qua Groq API tận dụng tốc độ phản hồi cao."""
+
+    def __init__(self, api_key: str, model: Optional[str] = None):
         self._client = Groq(api_key=api_key)
         self._model = model or DEFAULT_MODEL
 

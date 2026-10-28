@@ -1,3 +1,4 @@
+"""Adapter kết nối và thao tác với cơ sở dữ liệu đồ thị Neo4j."""
 import json
 import logging
 import re
@@ -11,23 +12,25 @@ from src.domain.extraction_schema.extraction_result import ExtractionResult
 
 logger = logging.getLogger(__name__)
 
+# Biểu thức chính quy kiểm thực tính an toàn của tên quan hệ và nhãn Node
 _REL_TYPE_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
 _LABEL_RE = re.compile(r"^[A-Z][A-Za-z0-9]*$")
 
 
 def _safe_label(label: str) -> str:
-    """Kiểm tra label PascalCase (Cypher không tham số hóa được label)."""
+    """Kiểm tra nhãn theo chuẩn PascalCase nhằm ngăn ngừa injection do Cypher không hỗ trợ tham số hóa label."""
     if not _LABEL_RE.match(label):
         raise ValueError(f"Label không hợp lệ: {label!r}")
     return label
 
 
 class Neo4jGraphClient(BaseGraphClient):
-    """Adapter Neo4j cho BaseGraphClient.
+    """Adapter triển khai BaseGraphClient tương tác với Neo4j thông qua Bolt Protocol.
 
-    - Node: MERGE theo (label = type, name); label và relationship type được
-      validate bằng regex vì Cypher không cho tham số hóa chúng.
-    - Metadata (dict) được lưu dạng chuỗi JSON vì Neo4j không hỗ trợ map property.
+    Quy ước lưu trữ:
+    - Node: Thực hiện MERGE theo cặp (Label = type, name). Nhãn và loại quan hệ được kiểm thực
+      qua Regex do ngôn ngữ Cypher không hỗ trợ tham số hóa nhãn động.
+    - Metadata: Tuần tự hóa dictionary thành chuỗi JSON do thuộc tính dạng Map không được Neo4j hỗ trợ lưu trực tiếp.
     """
 
     def __init__(self, uri: str, user: str, password: str, database: Optional[str] = None):
@@ -35,14 +38,17 @@ class Neo4jGraphClient(BaseGraphClient):
         self._database = database
 
     def ingest_extraction_result(self, result: ExtractionResult) -> None:
+        """Thực thi giao dịch ghi (Write Transaction) nạp kết quả trích xuất vào Neo4j."""
         with self._driver.session(database=self._database) as session:
             session.execute_write(self._ingest_tx, result)
 
     def close(self) -> None:
+        """Đóng kết nối driver của Neo4j."""
         self._driver.close()
 
     @classmethod
     def _ingest_tx(cls, tx, result: ExtractionResult) -> None:
+        """Giao dịch nội bộ thực thi câu lệnh MERGE cho từng bộ ba (Triple) cùng chứng cứ."""
         for rel in result.relations:
             src: BaseEntity = rel.domain
             dst: BaseEntity = rel.range
@@ -76,4 +82,5 @@ class Neo4jGraphClient(BaseGraphClient):
 
     @staticmethod
     def _dump_meta(meta: Dict[str, Any]) -> Optional[str]:
+        """Tuần tự hóa metadata thành chuỗi JSON hỗ trợ tiếng Việt có dấu."""
         return json.dumps(meta, ensure_ascii=False) if meta else None

@@ -1,5 +1,5 @@
-from typing import List, Type
-
+"""Adapter trích xuất tri thức sử dụng dịch vụ OpenAI."""
+from typing import List, Type, Optional
 from openai import OpenAI
 
 from src.application.port.base_extractor import BaseExtractor
@@ -11,7 +11,9 @@ DEFAULT_MODEL = "gpt-5.6-luna"
 
 
 class OpenAIExtractor(BaseExtractor):
-    def __init__(self, api_key: str, model: str | None = None):
+    """Triển khai trích xuất dữ liệu qua OpenAI API với hỗ trợ Structured Outputs."""
+
+    def __init__(self, api_key: str, model: Optional[str] = None):
         self._client = OpenAI(api_key=api_key)
         self._model = model or DEFAULT_MODEL
 
@@ -28,8 +30,7 @@ class OpenAIExtractor(BaseExtractor):
                 {"role": "system", "content": build_system_prompt(relation_classes)},
                 {"role": "user", "content": build_user_prompt(chunk_id, text)},
             ],
-            # strict=False vì `metadata` là dict[str, str] (khóa do LLM tự đặt),
-            # chế độ strict của OpenAI không chấp nhận dict tự do.
+            # Thiết lập strict=False do thuộc tính metadata chứa dictionary với khóa mở linh hoạt
             response_format={
                 "type": "json_schema",
                 "json_schema": {
@@ -41,7 +42,7 @@ class OpenAIExtractor(BaseExtractor):
         )
         message = completion.choices[0].message
         if message.refusal:
-            raise RuntimeError(f"OpenAI từ chối: {message.refusal}")
+            raise RuntimeError(f"OpenAI từ chối xử lý: {message.refusal}")
         raw_content = message.content or "{}"
         cleaned_content = clean_json_text(raw_content)
         return to_result(chunk_id, model.model_validate_json(cleaned_content))

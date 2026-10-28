@@ -1,13 +1,19 @@
+"""Mô hình dữ liệu thực thể (Entity Schemas) trong miền tri thức Lịch sử Việt Nam.
+
+Định nghĩa các lớp thực thể cơ sở và chuyên biệt kế thừa từ BaseEntity,
+sử dụng Pydantic để kiểm thực kiểu dữ liệu và cấu trúc hóa đối tượng trích xuất.
+"""
 from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 
 class BaseEntity(BaseModel):
+    """Thực thể cơ sở chứa các thuộc tính cốt lõi của một nút (Node) trong đồ thị tri thức."""
     name: str = Field(description="Tên thực thể chuẩn hóa")
     description: str = Field(description="Mô tả vai trò ngắn gọn trong ngữ cảnh")
-    # Định nghĩa sẵn trường type ở Base để hệ thống nhận diện đây là thuộc tính chung
+    # Thuộc tính phân loại định danh nhãn (Label) của Node trong cơ sở dữ liệu đồ thị
     type: str = Field(description="Loại thực thể")
-    # Cho LLM tự trích xuất thêm thuộc tính của Node
+    # Thuộc tính mở rộng do mô hình trích xuất bổ sung từ ngữ cảnh tài liệu
     metadata: dict[str, Any] = Field(
         default_factory=dict,
         description=(
@@ -18,7 +24,10 @@ class BaseEntity(BaseModel):
     )
 
 
-# Định nghĩa các loại thực thể cụ thể và "khóa" chặt trường type
+# ==============================================================================
+# ĐỊNH NGHĨA CÁC LOẠI THỰC THỂ CỤ THỂ (RÀNG BUỘC CHẶT TRƯỜNG TYPE THEO LITERAL)
+# ==============================================================================
+
 class Person(BaseEntity):
     """Nhân vật lịch sử cụ thể (vua, tướng, học giả)"""
     type: Literal["Person"] = "Person"

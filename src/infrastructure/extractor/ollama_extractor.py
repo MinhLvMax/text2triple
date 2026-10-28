@@ -1,3 +1,4 @@
+"""Adapter trích xuất tri thức sử dụng Ollama qua chuẩn OpenAI-compatible endpoint."""
 import json
 from typing import List, Optional, Type
 from openai import OpenAI
@@ -19,7 +20,7 @@ DEFAULT_MODEL = "qwen2.5:7b"
 class OllamaExtractor(BaseExtractor):
     """Adapter trích xuất tri thức sử dụng Ollama qua OpenAI-compatible API endpoint (/v1).
 
-    Tương thích với cả Ollama Local lẫn các nền tảng Ollama Cloud / VPS thuê ngoài.
+    Hỗ trợ kết nối cả môi trường Ollama chạy trên máy cục bộ (Local) hoặc máy chủ từ xa.
     """
 
     def __init__(
@@ -34,7 +35,7 @@ class OllamaExtractor(BaseExtractor):
             base_url = f"{base_url}/v1"
 
         self._model = model or DEFAULT_MODEL
-        # Ollama local không cần api_key thực, nhưng OpenAI client yêu cầu chuỗi không rỗng
+        # Ollama cục bộ không bắt buộc API key nhưng OpenAI client yêu cầu chuỗi không rỗng
         self._client = OpenAI(
             base_url=base_url,
             api_key=api_key or "ollama",
@@ -62,12 +63,6 @@ class OllamaExtractor(BaseExtractor):
             ],
             response_format={"type": "json_object"},
         )
-
-        message = completion.choices[0].message
-        if getattr(message, "refusal", None):
-            raise RuntimeError(f"Ollama từ chối: {message.refusal}")
-
-        raw_content = message.content or "{}"
+        raw_content = completion.choices[0].message.content or "{}"
         cleaned_content = clean_json_text(raw_content)
-
         return to_result(chunk_id, model.model_validate_json(cleaned_content))

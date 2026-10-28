@@ -1,18 +1,18 @@
-import threading
-from pathlib import Path
+"""Repository truy cập và quản lý vòng đời dữ liệu các đoạn văn bản (Chunks)."""
 import json
+import threading
 from typing import Optional, Dict, Any, List, Tuple
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
+
 from src.infrastructure.config import Config
 from src.infrastructure.database.models import Chunk
 
-# 1. Đường dẫn file database (Lưu vào thư mục data/)
+# Đường dẫn tệp cơ sở dữ liệu SQLite trong thư mục data/
 DB_PATH = Config.DATA_DIR / "historical_knowledge" / "staging_chunks.db"
 DATABASE_URL = f"sqlite:///{DB_PATH}"
 
-# 2. Khởi tạo Engine
-# echo=False để tắt log SQL (xử lý hàng nghìn chunk); đổi thành True để xem câu lệnh SQL trên console
+# Khởi tạo Engine với timeout chờ khóa SQLite và bộ tuần tự hóa JSON UTF-8
 engine = create_engine(
     DATABASE_URL,
     echo=False,
@@ -23,22 +23,32 @@ engine = create_engine(
     )
 )
 
-# 3. Tạo Session factory để thao tác dữ liệu sau này
+# Khởi tạo Session factory dùng cho toàn bộ phiên làm việc
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
 class ChunkRepository:
-    # KHÓA CẤP CLASS (Class-level lock):
-    # Dùng chung cho TOÀN BỘ các instance của ChunkRepository trong tiến trình.
-    # Ngăn tuyệt đối tình trạng 2 worker độc lập khởi tạo 2 instance repo khác nhau
-    # rồi bốc trùng 1 chunk.
+    """Repository quản lý hàng đợi và trạng thái trích xuất của các chunk.
+
+    Áp dụng cơ chế khóa hai cấp:
+    1. Khóa cấp lớp (Class-level lock): Đồng bộ hóa truy cập giữa các luồng trong cùng tiến trình.
+    2. Câu lệnh SQL nguyên tử (Atomic UPDATE ... RETURNING): Ngăn chặn xung đột tranh chấp (Race Condition)
+       giữa các tiến trình/terminal độc lập cùng truy cập CSDL SQLite.
+    """
     _lock = threading.Lock()
 
     def __init__(self, session_factory: sessionmaker = SessionLocal):
         self._session_factory = session_factory
 
     def fetch_pending(self, limit: Optional[int] = None) -> List[Tuple[str, str]]:
-        """Trả về [(chunk_id, text gửi cho LLM)] của các chunk PENDING."""
+        """Lấy danh sách các cặp (chunk_id, text) đang ở trạng thái PENDING.
+
+        Args:
+            limit: Giới hạn số lượng bản ghi cần lấy (None nếu lấy tất cả).
+
+        Returns:
+            List[Tuple[str, str]]: Danh sách chứa tuple (chunk_id, nội dung văn bản).
+        """
         with self._lock:
             with self._session_factory() as session:
                 query = (
@@ -54,13 +64,10 @@ class ChunkRepository:
                 ]
 
     def claim_next_pending(self) -> Optional[Tuple[str, str]]:
-        """Lấy nguyên tử (atomic) đúng 1 chunk PENDING và chuyển ngay sang PROCESSING.
+        """Nhận quyền xử lý nguyên tử (Atomic Task Leasing) 1 chunk PENDING và chuyển sang PROCESSING.
 
-        Sử dụng kết hợp 2 lớp bảo vệ chống Race Condition:
-        1. Class-level threading.Lock: Đồng bộ hóa toàn bộ các thread trong cùng tiến trình.
-        2. SQLite UPDATE ... RETURNING nguyên tử: Đảm bảo độc quyền ngay cả khi chạy
-           trên nhiều tiến trình / terminal khác nhau.
-        Trả về (chunk_id, text) hoặc None nếu không còn chunk nào PENDING.
+        Returns:
+            Optional[Tuple[str, str]]: Tuple (chunk_id, nội dung văn bản) hoặc None nếu hàng đợi rỗng.
         """
         with self._lock:
             with self._session_factory() as session:
@@ -85,10 +92,12 @@ class ChunkRepository:
                 return (chunk_id, overlap_val or text_val)
 
     def reset_processing_to_pending(self) -> int:
-        """Khôi phục các chunk đang bị kẹt ở trạng thái PROCESSING về lại PENDING.
+        """Khôi phục toàn bộ các chunk đang kẹt ở trạng thái PROCESSING về lại PENDING.
 
-        Rất hữu ích khi một tiến trình worker bị dừng đột ngột (mất điện, tắt console, Ctrl+C).
-        Trả về số lượng chunk đã được khôi phục.
+        Thường sử dụng để dọn dẹp trạng thái khi tiến trình worker trước đó bị dừng đột ngột.
+
+        Returns:
+            int: Số lượng bản ghi đã được khôi phục.
         """
         with self._lock:
             with self._session_factory() as session:
@@ -101,7 +110,7 @@ class ChunkRepository:
                 return count
 
     def update_provider(self, chunk_id: str, provider: str) -> None:
-        """Cập nhật tên nhà cung cấp (provider) thực hiện trích xuất cho chunk."""
+        """Cập nhật thông tin nhà cung cấp (provider) thực hiện trích xuất cho chunk."""
         with self._lock:
             with self._session_factory() as session:
                 chunk = session.get(Chunk, chunk_id)
@@ -110,7 +119,7 @@ class ChunkRepository:
                     session.commit()
 
     def update_model(self, chunk_id: str, model: str) -> None:
-        """Cập nhật tên model thực hiện trích xuất cho chunk."""
+        """Cập nhật tên mô hình cụ thể (model) đã thực hiện trích xuất."""
         with self._lock:
             with self._session_factory() as session:
                 chunk = session.get(Chunk, chunk_id)
@@ -125,7 +134,7 @@ class ChunkRepository:
         provider: Optional[str] = None,
         model: Optional[str] = None,
     ) -> None:
-        """Đánh dấu chunk đã xử lý thành công, lưu kết quả trích xuất và tùy chọn cập nhật provider/model."""
+        """Đánh dấu chunk đã hoàn thành xử lý và lưu trữ kết quả trích xuất cấu trúc."""
         with self._lock:
             with self._session_factory() as session:
                 chunk = session.get(Chunk, chunk_id)
@@ -139,7 +148,15 @@ class ChunkRepository:
                     session.commit()
 
     def mark_failed(self, chunk_id: str, max_retries: int) -> str:
-        """Tăng retry_count; FAILED nếu vượt ngưỡng, ngược lại giữ PENDING. Trả về status mới."""
+        """Tăng số lần thử lại (retry_count) và chuyển sang FAILED nếu vượt ngưỡng, ngược lại đưa về PENDING.
+
+        Args:
+            chunk_id: Mã định danh chunk gặp lỗi.
+            max_retries: Số lần thử lại tối đa cho phép.
+
+        Returns:
+            str: Trạng thái mới của chunk ('PENDING', 'FAILED' hoặc 'NOT_FOUND').
+        """
         with self._lock:
             with self._session_factory() as session:
                 chunk = session.get(Chunk, chunk_id)

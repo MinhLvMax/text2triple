@@ -1,3 +1,4 @@
+"""Adapter trích xuất tri thức sử dụng Google AI Studio (Gemini) qua official SDK `google-genai`."""
 import json
 from typing import List, Optional, Type
 from google import genai
@@ -17,7 +18,7 @@ DEFAULT_MODEL = "gemini-2.5-flash"
 
 
 class GoogleAIExtractor(BaseExtractor):
-    """Adapter trích xuất tri thức sử dụng Google AI Studio (Gemini) qua official SDK `google-genai`."""
+    """Adapter trích xuất tri thức thông qua mô hình Gemini của Google AI Studio."""
 
     def __init__(self, api_key: str, model: Optional[str] = None):
         self._client = genai.Client(api_key=api_key)

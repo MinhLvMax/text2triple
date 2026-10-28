@@ -1,5 +1,5 @@
+"""Module khởi tạo và định dạng Prompt phục vụ trích xuất tri thức qua LLM."""
 from typing import List, Type
-
 from pydantic import BaseModel
 
 from src.domain.extraction_schema.extraction_result import ExtractionResult
@@ -7,6 +7,14 @@ from src.domain.extraction_schema.relations import BaseRelation
 
 
 def build_system_prompt(relation_classes: List[Type[BaseRelation]]) -> str:
+    """Xây dựng chỉ dẫn hệ thống (System Prompt) kèm ràng buộc các loại quan hệ được phép.
+
+    Args:
+        relation_classes: Danh sách các lớp quan hệ mục tiêu.
+
+    Returns:
+        str: Chuỗi văn bản prompt chỉ dẫn hệ thống.
+    """
     relation_lines = "\n".join(
         f"- {cls.model_fields['relation_name'].default}: {(cls.__doc__ or '').strip()}"
         for cls in relation_classes
@@ -27,11 +35,19 @@ def build_system_prompt(relation_classes: List[Type[BaseRelation]]) -> str:
 
 
 def build_user_prompt(chunk_id: str, text: str) -> str:
+    """Xây dựng nội dung lời nhắc người dùng (User Prompt) truyền văn bản cần trích xuất."""
     return f"chunk_id: {chunk_id}\n\nVăn bản:\n{text}"
 
 
 def clean_json_text(text: str) -> str:
-    """Loại bỏ markdown code fences (```json ... ```) nếu LLM vô tình kèm theo."""
+    """Làm sạch văn bản đầu ra từ LLM, loại bỏ các khối bọc định dạng Markdown (```json ... ```).
+
+    Args:
+        text: Chuỗi văn bản thô trả về từ mô hình.
+
+    Returns:
+        str: Chuỗi JSON sạch sẵn sàng phân giải.
+    """
     cleaned = text.strip()
     if cleaned.startswith("```"):
         lines = cleaned.splitlines()
@@ -44,5 +60,5 @@ def clean_json_text(text: str) -> str:
 
 
 def to_result(chunk_id: str, parsed: BaseModel) -> ExtractionResult:
-    """Gói kết quả LLM vào ExtractionResult của domain, gán chunk_id."""
+    """Chuyển đổi dữ liệu đối tượng Pydantic động của mô hình sang ExtractionResult miền ứng dụng."""
     return ExtractionResult(chunk_id=chunk_id, relations=list(parsed.relations))
